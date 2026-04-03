@@ -1,13 +1,13 @@
 import { useState, useEffect, useRef } from "react";
 
-const API   = "http://localhost:8000/api";
+const API = "http://localhost:8000/api";
 const USERS = ["Supun", "Ruchira", "Sachith", "Sasiru"];
 
 const USER_CONFIG = {
-  Supun:   { avatar: "SP", color: "#818cf8" },
+  Supun: { avatar: "SP", color: "#818cf8" },
   Ruchira: { avatar: "RU", color: "#f472b6" },
   Sachith: { avatar: "SA", color: "#38bdf8" },
-  Sasiru:  { avatar: "SS", color: "#34d399" },
+  Sasiru: { avatar: "SS", color: "#34d399" },
 };
 
 const LOG_COLORS = {
@@ -24,29 +24,30 @@ async function apiFetch(path, options = {}) {
 }
 
 export default function NexusChat() {
-  const [servers, setServers]         = useState([]);
-  const [messages, setMessages]       = useState([]);
-  const [logs, setLogs]               = useState([]);
-  const [input, setInput]             = useState("");
+  const [servers, setServers] = useState([]);
+  const [messages, setMessages] = useState([]);
+  const [logs, setLogs] = useState([]);
+  const [input, setInput] = useState("");
   const [currentUser, setCurrentUser] = useState("Supun");
-  const [loading, setLoading]         = useState(false);
-  const [connected, setConnected]     = useState(false);
-  const [leader, setLeader]           = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [connected, setConnected] = useState(false);
+  const [leader, setLeader] = useState(null);
   const [currentTerm, setCurrentTerm] = useState(0);
-  const [hasQuorum, setHasQuorum]     = useState(true);
+  const [hasQuorum, setHasQuorum] = useState(true);
   const [pendingCount, setPendingCount] = useState(0);
-  const [timeSkews, setTimeSkews]     = useState({});
-  const [syncResult, setSyncResult]   = useState(null);
-  const [syncing, setSyncing]         = useState(false);
-  const [activeTab, setActiveTab]     = useState("nodes");
+  const [timeSkews, setTimeSkews] = useState({});
+  const [syncResult, setSyncResult] = useState(null);
+  const [syncing, setSyncing] = useState(false);
+  const [activeTab, setActiveTab] = useState("nodes");
 
   // Queue state: message waiting in the input bar (not sent to chat yet)
-  const [queuedMsg, setQueuedMsg]     = useState(null);  // { content, sender, id, time }
-  const [sendError, setSendError]     = useState(null);
+  const [queuedMsg, setQueuedMsg] = useState(null);  // { content, sender, id, time }
+  const [sendError, setSendError] = useState(null);
 
   const chatEndRef = useRef(null);
   const termEndRef = useRef(null);
-  const inputRef   = useRef(null);
+  const inputRef = useRef(null);
+  const isSendingRef = useRef(false);   // ← ADD THIS
 
   useEffect(() => {
     fetchAll();
@@ -66,11 +67,11 @@ export default function NexusChat() {
     try {
       const [sr, mr, lr, tr] = await Promise.all([
         apiFetch("/status"), apiFetch("/messages"),
-        apiFetch("/logs"),   apiFetch("/time/report"),
+        apiFetch("/logs"), apiFetch("/time/report"),
       ]);
-      const s   = await sr.json();
-      const m   = await mr.json();
-      const l   = await lr.json();
+      const s = await sr.json();
+      const m = await mr.json();
+      const l = await lr.json();
       const tr2 = await tr.json();
 
       setServers(s.servers || []);
@@ -87,13 +88,17 @@ export default function NexusChat() {
       setConnected(true);
 
       // If quorum is restored and we had a queued message, auto-retry
-      if (quorum && queuedMsg) {
+      // if (quorum && queuedMsg) {
+      // retryQueuedMessage(queuedMsg);
+      //}
+      // AFTER (fixed):
+      if (quorum && queuedMsg && !isSendingRef.current) {
         retryQueuedMessage(queuedMsg);
       }
     } catch { setConnected(false); }
   }
 
-  async function retryQueuedMessage(msg) {
+  /*async function retryQueuedMessage(msg) {
     try {
       const res  = await apiFetch("/messages", {
         method: "POST",
@@ -105,6 +110,22 @@ export default function NexusChat() {
         await fetchAll();
       }
     } catch {}
+  }*/
+  // AFTER (fixed):
+  async function retryQueuedMessage(msg) {
+    isSendingRef.current = true;   // lock: prevent re-entry
+    try {
+      const res = await apiFetch("/messages", {
+        method: "POST",
+        body: JSON.stringify({ sender: msg.sender, content: msg.content }),
+      });
+      if (res.status === 201) {
+        setQueuedMsg(null);        // clear the queue
+        setSendError(null);
+        // DO NOT call fetchAll() here — the interval will pick it up naturally
+      }
+    } catch { }
+    isSendingRef.current = false;  // unlock
   }
 
   async function sendMessage() {
@@ -122,7 +143,7 @@ export default function NexusChat() {
     setLoading(true);
     setSendError(null);
     try {
-      const res  = await apiFetch("/messages", {
+      const res = await apiFetch("/messages", {
         method: "POST",
         body: JSON.stringify({ sender: currentUser, content }),
       });
@@ -151,10 +172,10 @@ export default function NexusChat() {
   }
 
   async function crashServer(id) {
-    try { await apiFetch("/servers/" + id + "/crash",   { method: "POST" }); await fetchAll(); } catch {}
+    try { await apiFetch("/servers/" + id + "/crash", { method: "POST" }); await fetchAll(); } catch { }
   }
   async function recoverServer(id) {
-    try { await apiFetch("/servers/" + id + "/recover", { method: "POST" }); await fetchAll(); } catch {}
+    try { await apiFetch("/servers/" + id + "/recover", { method: "POST" }); await fetchAll(); } catch { }
   }
   async function triggerSync() {
     setSyncing(true); setSyncResult(null);
@@ -162,12 +183,12 @@ export default function NexusChat() {
       const res = await apiFetch("/time/sync", { method: "POST" });
       setSyncResult(await res.json());
       await fetchAll();
-    } catch {}
+    } catch { }
     setSyncing(false);
   }
 
   const aliveCount = servers.filter(s => s.alive).length;
-  const allDown    = aliveCount === 0;
+  const allDown = aliveCount === 0;
 
   return (
     <>
@@ -492,9 +513,9 @@ export default function NexusChat() {
 
               {/* Only committed messages appear here */}
               {messages.map((msg, i) => {
-                const isMe   = msg.sender === currentUser;
-                const cfg    = USER_CONFIG[msg.sender] || { avatar: msg.sender.slice(0,2).toUpperCase(), color: "#6b7280" };
-                const prev   = i > 0 ? messages[i-1].sender : null;
+                const isMe = msg.sender === currentUser;
+                const cfg = USER_CONFIG[msg.sender] || { avatar: msg.sender.slice(0, 2).toUpperCase(), color: "#6b7280" };
+                const prev = i > 0 ? messages[i - 1].sender : null;
                 const showAv = !isMe && prev !== msg.sender;
                 return (
                   <div key={msg.id} className={"mr" + (isMe ? " mine" : "")}>
@@ -555,10 +576,10 @@ export default function NexusChat() {
                     onChange={e => setInput(e.target.value)}
                     onKeyDown={e => e.key === "Enter" && sendMessage()}
                     placeholder={
-                      allDown        ? "All nodes down — cannot send" :
-                      queuedMsg      ? "Another message is already queued..." :
-                      !hasQuorum     ? `Type message — will queue until quorum restored...` :
-                                       `Message as ${currentUser}...`
+                      allDown ? "All nodes down — cannot send" :
+                        queuedMsg ? "Another message is already queued..." :
+                          !hasQuorum ? `Type message — will queue until quorum restored...` :
+                            `Message as ${currentUser}...`
                     }
                     disabled={allDown || loading || !!queuedMsg}
                   />
@@ -577,7 +598,7 @@ export default function NexusChat() {
           {/* RIGHT PANEL */}
           <div className="right">
             <div className="rtabs">
-              {[["nodes","🖥  Nodes"],["raft","🤝  Raft"],["time","⏱  Time"],["logs","⬛  Terminal"]].map(([k,l]) => (
+              {[["nodes", "🖥  Nodes"], ["raft", "🤝  Raft"], ["time", "⏱  Time"], ["logs", "⬛  Terminal"]].map(([k, l]) => (
                 <button key={k} className={"rtab" + (activeTab === k ? " active" : "")} onClick={() => setActiveTab(k)}>{l}</button>
               ))}
             </div>
@@ -589,7 +610,7 @@ export default function NexusChat() {
                 <div className="ng">
                   {servers.map(s => {
                     const isLead = s.name === leader;
-                    const cls    = isLead && s.alive ? "lead-c" : s.alive ? "alive-c" : "dead-c";
+                    const cls = isLead && s.alive ? "lead-c" : s.alive ? "alive-c" : "dead-c";
                     return (
                       <div key={s.id} className={"nc " + cls}>
                         <div className="nc-top">
@@ -606,8 +627,8 @@ export default function NexusChat() {
                           <span className="tag gray">T={s.term ?? 0}</span>
                         </div>
                         <div className="ncbtns">
-                          <button className="ncbtn crash"  onClick={() => crashServer(s.id)}   disabled={!s.alive}>💥 Crash</button>
-                          <button className="ncbtn rec"    onClick={() => recoverServer(s.id)} disabled={s.alive}>✅ Recover</button>
+                          <button className="ncbtn crash" onClick={() => crashServer(s.id)} disabled={!s.alive}>💥 Crash</button>
+                          <button className="ncbtn rec" onClick={() => recoverServer(s.id)} disabled={s.alive}>✅ Recover</button>
                         </div>
                       </div>
                     );
@@ -679,17 +700,17 @@ export default function NexusChat() {
                       <div className="pend-title">⏳ Queued Messages ({pendingCount + (queuedMsg ? 1 : 0)})</div>
                       {queuedMsg && (
                         <div className="pend-item">
-                          <div className="pend-sender">{queuedMsg.sender} <span style={{fontSize:"10px",color:"#fb923c",fontWeight:"600"}}>· local queue</span></div>
+                          <div className="pend-sender">{queuedMsg.sender} <span style={{ fontSize: "10px", color: "#fb923c", fontWeight: "600" }}>· local queue</span></div>
                           <div className="pend-content">"{queuedMsg.content}"</div>
                         </div>
                       )}
-                      <div className="pend-note">Will auto-commit through Raft when majority ({Math.floor(servers.length/2)+1}/{servers.length} nodes) recovers.</div>
+                      <div className="pend-note">Will auto-commit through Raft when majority ({Math.floor(servers.length / 2) + 1}/{servers.length} nodes) recovers.</div>
                     </div>
                   )}
 
                   <div className="infobox">
                     <strong>Why messages queue when majority fails:</strong><br />
-                    Raft requires <strong>majority ({Math.floor(servers.length/2)+1}/{servers.length} nodes)</strong> to commit any log entry.
+                    Raft requires <strong>majority ({Math.floor(servers.length / 2) + 1}/{servers.length} nodes)</strong> to commit any log entry.
                     With only 1 node alive, the leader cannot confirm replication safely.
                     Messages are held in a local queue and committed automatically when quorum returns.<br /><br />
                     <strong style={{ color: "#34d399" }}>✅ committed</strong> = replicated to majority, visible to everyone<br />
@@ -707,7 +728,7 @@ export default function NexusChat() {
                   {syncResult && (
                     <div className="sync-res">
                       <div className="sync-res-title">✅ Sync Complete</div>
-                      <div className="sync-res-time">{syncResult.master_readable || new Date((syncResult.master_time||0) * 1000).toLocaleTimeString()}</div>
+                      <div className="sync-res-time">{syncResult.master_readable || new Date((syncResult.master_time || 0) * 1000).toLocaleTimeString()}</div>
                       <div className="sync-nodes">
                         {Object.entries(syncResult.skews || {}).map(([n, v]) => (
                           <div key={n} className="sync-node">{n}: correction {v > 0 ? "+" : ""}{v.toFixed(3)}s</div>
@@ -720,17 +741,17 @@ export default function NexusChat() {
                     {Object.keys(timeSkews).length === 0
                       ? <div style={{ color: "#374151", fontSize: "13px" }}>Connecting...</div>
                       : Object.entries(timeSkews).map(([name, skew]) => {
-                          const pct = Math.min(Math.abs(skew) / 2 * 100, 100);
-                          const bc  = skew > 0.05 ? "#fbbf24" : skew < -0.05 ? "#60a5fa" : "#34d399";
-                          const cls = skew > 0.05 ? "pos" : skew < -0.05 ? "neg" : "zero";
-                          return (
-                            <div key={name} className="skew-row">
-                              <span className="skew-srv">{name}</span>
-                              <div className="skew-bw"><div className="skew-b" style={{ width: pct + "%", background: bc }} /></div>
-                              <span className={"skew-val " + cls}>{skew > 0 ? "+" : ""}{skew.toFixed(3)}s</span>
-                            </div>
-                          );
-                        })
+                        const pct = Math.min(Math.abs(skew) / 2 * 100, 100);
+                        const bc = skew > 0.05 ? "#fbbf24" : skew < -0.05 ? "#60a5fa" : "#34d399";
+                        const cls = skew > 0.05 ? "pos" : skew < -0.05 ? "neg" : "zero";
+                        return (
+                          <div key={name} className="skew-row">
+                            <span className="skew-srv">{name}</span>
+                            <div className="skew-bw"><div className="skew-b" style={{ width: pct + "%", background: bc }} /></div>
+                            <span className={"skew-val " + cls}>{skew > 0 ? "+" : ""}{skew.toFixed(3)}s</span>
+                          </div>
+                        );
+                      })
                     }
                   </div>
                   <div className="infobox">
@@ -758,7 +779,7 @@ export default function NexusChat() {
                   </div>
                   <div className="tbody">
                     {logs.map(log => {
-                      const col     = LOG_COLORS[log.type] || "#4b5563";
+                      const col = LOG_COLORS[log.type] || "#4b5563";
                       const typeStr = ("[" + log.type.toUpperCase() + "]").padEnd(12);
                       return (
                         <div key={log.id} className="tline">
