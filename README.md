@@ -43,12 +43,12 @@ You can:
 
 ## Team Members
 
-| # | Name | Registration | Responsibility |
-|---|------|--------------|----------------|
-| 01 | Supun Dharmaratne | — | Fault Tolerance — Failure Detection & Recovery |
-| 02 | Ruchira Lakshan | — | Data Replication — Quorum-Based Consistency |
-| 03 | Sasiru Sithujaya | — | Time Synchronisation — Berkeley Algorithm |
-| 04 | Sachith Asmadala | — | Consensus & Agreement — Raft Leader Election |
+| # | Name | Responsibility |
+|---|------|----------------|
+| 01 | Supun Dharmaratne | Fault Tolerance — Failure Detection & Recovery |
+| 02 | Ruchira Lakshan | Data Replication — Quorum-Based Consistency |
+| 03 | Sasiru Sithujaya | Time Synchronisation — Berkeley Algorithm |
+| 04 | Sachith Asmadala | Consensus & Agreement — Raft Leader Election |
 
 ---
 
